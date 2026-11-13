@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cut">
+<meta name="theme-color" content="#0f1720">
+<title>창신중학교 스마트 엘리베이터</title>
+<style>
+:root{
+  --bg:#eef1f5; --card:#ffffff; --ink:#18202b; --sub:#5d6876; --line:#d6dce4;
+  --panel:#141a22; --panel2:#1e2631; --led-off:#3a2224; --red:#ff2d2d; --red-glow:rgba(255,45,45,.55);
+  --amber:#ffb020; --amber-off:#3d3524; --up:#1f9d61; --down:#2d6cdf; --warn:#d9480f;
+  --steel1:#cfd5dc; --steel2:#9aa3ad; --shaft:#2a323d; --floorline:#4a5562;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1117; --card:#151c25; --ink:#e7edf3; --sub:#97a3b1; --line:#283240;
+    --steel1:#b9c1ca; --steel2:#7f8a96;
+  }
+}
+:root[data-theme="dark"]{ --bg:#0c1117; --card:#151c25; --ink:#e7edf3; --sub:#97a3b1; --line:#283240; }
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;}
+body{padding:0 16px 40px}
+header{max-width:1100px;margin:0 auto;padding:18px 0 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{font-size:clamp(20px,4.6vw,28px);margin:0;letter-spacing:-.5px}
+.badge{font-size:13px;font-weight:700;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--card);white-space:nowrap}
+.badge.sim{color:#7a5af8}.badge.on{color:var(--up)}.badge.off{color:var(--warn)}
+.badge .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:6px;vertical-align:1px}
+#soundBtn{margin-left:auto}
+.grid{max-width:1100px;margin:0 auto;display:grid;gap:14px;grid-template-columns:minmax(220px,300px) 1fr}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.card h2{font-size:15px;margin:0 0 12px;color:var(--sub);font-weight:700}
+.span2{grid-column:1/-1}
+@media (max-width:760px){ .grid{grid-template-columns:1fr} .panel{order:-2} .shaftCard{order:-1} }
+
+/* ---------- 승강로 (건물 단면 + 유리 승강로) ---------- */
+.building{--fh:84px;position:relative;max-width:300px;margin:0 auto;
+  background:linear-gradient(180deg,#e9e3d6,#d9d1c1);border-radius:10px 10px 4px 4px;padding:0 10px 0 0;
+  box-shadow:inset 0 0 0 2px #b9ae98}
+.roof{height:46px;position:relative;border-bottom:8px solid #8d8574;
+  background:linear-gradient(180deg,#5a6472,#475160);border-radius:10px 10px 0 0;display:flex;align-items:center;justify-content:center;gap:8px;
+  color:#e8edf2;font-weight:800;font-size:13px;letter-spacing:.5px}
+.roof .mr{background:#2f3742;border:1px solid #6c7889;border-radius:6px;padding:4px 8px;font-size:11px;color:#b9c4d0}
+.roof .mr b{color:#7ee2a8;margin-right:4px}
+.shaft{position:relative;height:calc(5 * var(--fh))}
+.floorRow{position:absolute;left:0;right:0;height:var(--fh)}
+.floorRow .slab{position:absolute;left:0;right:-10px;bottom:-4px;height:8px;background:linear-gradient(180deg,#a59c88,#857d6b);z-index:1}
+.floorRow .plate{position:absolute;left:8px;top:14px;width:46px;padding:4px 0;text-align:center;border-radius:6px;
+  background:#2b3138;color:#cfd6dd;font:800 17px/1.1 "Courier New",monospace;border:2px solid #57616c}
+.floorRow .plate small{display:block;font:700 9px/1.2 sans-serif;color:#97a3b0;margin-top:2px}
+.floorRow .lantern{position:absolute;left:16px;top:56px;display:flex;gap:4px}
+.floorRow .lantern i{font-style:normal;font-size:11px;color:#9b927f}
+.floorRow.cur .plate{background:#3a0d0d;color:var(--red);border-color:var(--red);box-shadow:0 0 12px var(--red-glow)}
+.floorRow.cur .plate small{color:#ff9a9a}
+.floorRow.up .lantern .u,.floorRow.down .lantern .d{color:var(--amber);text-shadow:0 0 8px rgba(255,176,32,.9)}
+.floorRow .win{position:absolute;right:8px;top:16px;width:34px;height:40px;border-radius:3px;
+  background:linear-gradient(160deg,#cfe6f7,#8fb6d6);border:3px solid #f4f0e6;box-shadow:0 0 0 1px #b9ae98}
+.well{position:absolute;left:64px;right:52px;top:0;bottom:0;
+  background:linear-gradient(90deg,rgba(28,40,56,.92),rgba(44,62,84,.86) 50%,rgba(28,40,56,.92));
+  border-left:4px solid #6d7684;border-right:4px solid #6d7684}
+.well::before,.well::after{content:"";position:absolute;top:0;bottom:0;width:4px;background:linear-gradient(90deg,#9aa4b0,#5d6672)}
+.well::before{left:6px}.well::after{right:6px}
+.well .glass{position:absolute;inset:0;background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.08) 38%,transparent 46%);pointer-events:none;z-index:4}
+.car{position:absolute;left:14px;right:14px;overflow:hidden;height:calc(var(--fh) - 10px);z-index:3;
+  background:linear-gradient(180deg,#d3d9df,#8e98a3);border-radius:5px 5px 2px 2px;padding:15px 4px 4px;
+  box-shadow:0 8px 18px rgba(0,0,0,.45), inset 0 0 0 1px #6c7682}
+.car .hdr{position:absolute;top:2px;left:50%;transform:translateX(-50%);display:flex;gap:4px;align-items:center;
+  background:#0b0e12;border-radius:3px;padding:1px 7px;font:800 11px/1.1 "Courier New",monospace;color:var(--red);text-shadow:0 0 6px var(--red-glow)}
+.car .hdr .ar{color:var(--amber);min-width:8px}
+.cab{position:relative;height:100%;overflow:hidden;border-radius:2px;
+  background:linear-gradient(180deg,#fff6dd 0%,#f3dfb4 70%,#c9b08a 70%,#b89f7a 100%)}
+.cab::before{content:"";position:absolute;left:10%;right:10%;top:0;height:3px;background:#fff;box-shadow:0 0 10px 3px rgba(255,248,214,.9)}
+.cab .panels{position:absolute;inset:3px 0 30% 0;background:repeating-linear-gradient(90deg,rgba(0,0,0,.06) 0 1px,transparent 1px 33%)}
+.cab .rail{position:absolute;left:8%;right:8%;top:46%;height:3px;border-radius:2px;background:#9aa3ad}
+.cab .ppl{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);font-size:21px;line-height:1;white-space:nowrap}
+.cab .btns{position:absolute;right:5px;top:18%;width:7px;height:22px;border-radius:2px;background:#4b535d;
+  background-image:radial-gradient(circle,#ffd36e 1.5px,transparent 2px);background-size:7px 5.5px}
+.door{position:absolute;top:15px;bottom:4px;width:calc(50% - 4px);z-index:2;overflow:hidden;transition:transform 1s ease-in-out;
+  background:repeating-linear-gradient(90deg,#c4cbd2 0 2px,#d9dee3 2px 5px)}
+.door.l{left:4px;box-shadow:inset -1px 0 0 #7b8590}.door.r{right:4px;box-shadow:inset 1px 0 0 #7b8590}
+.car.open .door.l{transform:translateX(-92%)}.car.open .door.r{transform:translateX(92%)}
+.lobby{height:30px;background:linear-gradient(180deg,#8d8574,#6f6858);border-radius:0 0 4px 4px;margin-right:-10px;
+  display:flex;align-items:center;justify-content:center;color:#f2ede2;font-size:12px;font-weight:700;letter-spacing:1px}
+/* ---------- 조작반 ---------- */
+.panel{display:flex;flex-direction:column;gap:14px}
+.display{background:var(--panel);border-radius:14px;padding:14px 18px;display:flex;align-items:center;justify-content:center;gap:22px;
+  box-shadow:inset 0 0 0 2px #000, inset 0 0 22px rgba(0,0,0,.6)}
+.arrows{display:flex;flex-direction:column;gap:6px}
+.arrows span{font-size:clamp(34px,8vw,48px);line-height:1;color:var(--amber-off);transition:color .2s,text-shadow .2s}
+.arrows span.lit{color:var(--amber);text-shadow:0 0 14px rgba(255,176,32,.8);animation:blink .8s infinite}
+@keyframes blink{50%{opacity:.35}}
+.digit{font:900 clamp(84px,22vw,128px)/1 "Courier New",monospace;color:var(--red);text-shadow:0 0 18px var(--red-glow),0 0 2px #fff3;
+  min-width:1.1ch;text-align:center}
+.msg{text-align:center;font-weight:700;font-size:16px;min-height:24px}
+.lamps{display:flex;justify-content:center;gap:10px}
+.lamp{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:19px;
+  background:var(--panel2);color:#7d8794;border:2px solid #3a4452;transition:all .25s}
+.lamp.cur{background:var(--red);color:#fff;border-color:#ff8a8a;box-shadow:0 0 16px var(--red-glow)}
+.lamp.tgt{border-color:var(--amber);color:var(--amber)}
+.ctrl{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+button{font:inherit;cursor:pointer;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:10px 14px;font-weight:700}
+button:active{transform:scale(.97)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.big{min-height:104px;font-size:44px;color:#fff;border:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.big small{font-size:15px;font-weight:700;opacity:.9}
+.big.up{background:linear-gradient(180deg,#27b673,var(--up))}
+.big.down{background:linear-gradient(180deg,#4a86f0,var(--down))}
+.big.flash{box-shadow:0 0 0 4px var(--amber)}
+.pending{border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+#pendText{font-size:15px;font-weight:700;margin-bottom:8px}
+.bar{height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--amber);transition:width .1s linear}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row button{flex:1 1 auto}
+
+/* ---------- 센서 ---------- */
+.sensorGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.stat{background:var(--bg);border-radius:10px;padding:10px;text-align:center}
+.stat b{display:block;font-size:22px;font-family:"Courier New",monospace}
+.stat small{color:var(--sub);font-size:12px}
+.gauge{position:relative;height:14px;border-radius:99px;background:var(--line)}
+.gauge i{position:absolute;top:-3px;width:20px;height:20px;border-radius:50%;background:var(--red);transform:translateX(-50%);transition:left .3s}
+.ticks{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-top:6px}
+
+/* ---------- 설정 ---------- */
+label{display:block;font-size:13px;color:var(--sub);margin:8px 0 4px}
+input{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+details summary{cursor:pointer;font-weight:700;color:var(--sub)}
+.help{font-size:14px;line-height:1.65;color:var(--sub)}
+.help b{color:var(--ink)}
+.help ol{padding-left:20px;margin:8px 0}
+code{background:var(--bg);padding:1px 5px;border-radius:5px;font-size:13px}
+#log{list-style:none;margin:0;padding:0;max-height:200px;overflow:auto;font-size:13px}
+#log li{padding:5px 0;border-bottom:1px solid var(--line)}
+#log time{color:var(--sub);margin-right:8px;font-family:monospace}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(120px);background:#222b36;color:#fff;
+  padding:12px 18px;border-radius:12px;font-weight:700;transition:transform .3s,opacity .3s;opacity:0;z-index:9;max-width:90vw;text-align:center}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛗 창신중학교 스마트 엘리베이터</h1>
+  <span id="badge" class="badge sim"><span class="dot"></span>시뮬레이션</span>
+  <button id="soundBtn" title="소리 켜기/끄기">🔊 소리 켜짐</button>
+</header>
+
+<main class="grid">
+  <!-- 승강로 -->
+  <section class="card shaftCard">
+    <h2>승강로</h2>
+    <div class="building">
+      <div class="roof">창신중학교 <span class="mr"><b>●</b>기계실 · MOTOR A</span></div>
+      <div class="shaft" id="shaft">
+        <div class="well" id="well">
+          <div class="car" id="car">
+            <div class="hdr"><span class="ar" id="carAr"></span><span id="carLbl">1F</span></div>
+            <div class="cab">
+              <div class="panels"></div><div class="rail"></div><div class="btns"></div>
+              <div class="ppl">🧑‍🎓🧑‍🏫</div>
+            </div>
+            <div class="door l"></div><div class="door r"></div>
+          </div>
+          <div class="glass"></div>
+        </div>
+      </div>
+      <div class="lobby">ENTRANCE · 1층 로비</div>
+    </div>
+  </section>
+
+  <!-- 조작반 -->
+  <section class="card panel">
+    <div class="display" aria-live="polite">
+      <div class="arrows"><span id="arUp">▲</span><span id="arDn">▼</span></div>
+      <div class="digit" id="digit">1</div>
+    </div>
+    <div class="msg" id="msg">준비 중…</div>
+    <div class="lamps" id="lamps"></div>
+    <div class="ctrl">
+      <button class="big up" id="btnUp">▲<small>위로 (A 버튼)</small></button>
+      <button class="big down" id="btnDn">▼<small>아래로 (B 버튼)</small></button>
+    </div>
+    <div class="pending">
+      <div id="pendText">누른 횟수만큼 층을 이동해요. 마지막으로 누르고 3초 뒤 출발!</div>
+      <div class="bar"><i id="pendBar"></i></div>
+    </div>
+    <div class="row">
+      <button id="btnCancel">✖ 입력 취소</button>
+      <button id="btnDoor">🚪 문 열기</button>
+      <button id="btnCal">📏 센서 보정</button>
+    </div>
+  </section>
+
+  <!-- 센서 -->
+  <section class="card">
+    <h2>근접센서 (PIN1)</h2>
+    <div class="sensorGrid">
+      <div class="stat"><b id="sRaw">-</b><small>현재값</small></div>
+      <div class="stat"><b id="sBot">-</b><small>최저 (맨 아래)</small></div>
+      <div class="stat"><b id="sTop">-</b><small>최대 (맨 위)</small></div>
+    </div>
+    <div class="gauge"><i id="gDot" style="left:0%"></i></div>
+    <div class="ticks"><span>1층</span><span>2층</span><span>3층</span><span>4층</span><span>5층</span></div>
+    <p class="help" id="calState" style="margin:10px 0 0">보정 전</p>
+  </section>
+
+  <!-- 원격 연결 -->
+  <section class="card">
+    <h2>원격 연결 (Firebase 실시간 데이터베이스)</h2>
+    <label for="dbUrl">데이터베이스 주소</label>
+    <input id="dbUrl" placeholder="https://프로젝트-default-rtdb.asia-southeast1.firebasedatabase.app" autocomplete="off">
+    <label for="dbAuth">비밀키 (공개 규칙이면 비워두기)</label>
+    <input id="dbAuth" type="password" autocomplete="off">
+    <div class="row" style="margin-top:10px">
+      <button id="btnConnect">🔗 연결</button>
+      <button id="btnSim">🧪 시뮬레이션</button>
+      <button id="btnShare">📱 휴대폰 링크 복사</button>
+    </div>
+    <details style="margin-top:12px">
+      <summary>연결 방법 보기</summary>
+      <div class="help">
+        <ol>
+          <li>ESP32는 <b>2.4GHz Wi-Fi만</b> 됩니다. 학교 5GHz 대신 <b>휴대폰 핫스팟(2.4GHz)</b>에 연결해요.</li>
+          <li><a href="https://console.firebase.google.com" target="_blank" rel="noopener">Firebase 콘솔</a> → 프로젝트 만들기 → <b>Realtime Database</b> → 데이터베이스 만들기 (위치: 싱가포르)</li>
+          <li>규칙 탭에 아래를 붙여넣고 게시<br><code>{"rules":{"elevator":{".read":true,".write":true}}}</code></li>
+          <li>데이터베이스 주소를 복사해 위 칸과 아두이노 코드의 <code>FIREBASE_URL</code>에 넣어요.</li>
+          <li>PC·휴대폰은 학교 5GHz Wi-Fi나 LTE/5G 데이터 어디서든 이 페이지로 조작할 수 있어요.</li>
+        </ol>
+      </div>
+    </details>
+  </section>
+
+  <section class="card span2">
+    <h2>기록</h2>
+    <ul id="log"></ul>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+"use strict";
+const FLOORS = 5, WAIT_MS = 3000, FLOOR_H = 84, SPEED = 0.9; // 층/초
+const $ = id => document.getElementById(id);
+
+/* ================= 상태 ================= */
+const S = { floor:1, target:1, dir:"stop", door:"closed", status:"booting", msg:"",
+            raw:0, bottom:0, top:0, calibrated:false, pendingDir:"stop", pendingCount:0 };
+let mode = "sim";            // "sim" | "fb"
+let carPos = 1;              // 화면 속 엘리베이터 위치 (층 단위, 소수)
+let pend = { dir:0, count:0, t:0, timer:null };
+let soundOn = true;
+let boardSeenAt = 0;         // 보드에서 마지막으로 소식이 온 시각
+let simToken = 0;
+
+/* ================= 화면 만들기 ================= */
+const shaft = $("shaft"), car = $("car");
+for (let f = 1; f <= FLOORS; f++) {
+  const r = document.createElement("div");
+  r.className = "floorRow"; r.id = "row" + f;
+  r.style.bottom = ((f - 1) * FLOOR_H) + "px";
+  const names = ["로비", "2학년", "3학년", "도서관", "옥상정원"];
+  r.innerHTML = '<div class="plate">' + f + 'F<small>' + names[f - 1] + '</small></div>' +
+    '<div class="lantern"><i class="u">▲</i><i class="d">▼</i></div><div class="win"></div><div class="slab"></div>';
+  shaft.insertBefore(r, $("well"));
+}
+for (let f = FLOORS; f >= 1; f--) {
+  const l = document.createElement("div");
+  l.className = "lamp"; l.id = "lamp" + f; l.textContent = f;
+  $("lamps").appendChild(l);
+}
+
+/* ================= 소리 (위/아래 다른 소리) ================= */
+let ac = null, moveLoop = null;
+function audio() {
+  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+  if (ac.state === "suspended") ac.resume();
+  return ac;
+}
+function tone(freq, dur, when = 0, type = "sine", vol = 0.18) {
+  if (!soundOn) return;
+  const a = audio(); if (!a) return;
+  const o = a.createOscillator(), g = a.createGain(), t = a.currentTime + when;
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+const snd = {
+  click(){ tone(1800, .06, 0, "square", .07); },
+  error(){ tone(300, .18, 0, "square", .1); tone(300, .18, .25, "square", .1); },
+  arrive(){ tone(1568, .25, 0, "sine", .2); tone(1319, .25, .2, "sine", .2); tone(1047, .6, .4, "sine", .22); },
+  start(dir){
+    if (dir === "up") { tone(523,.12,0,"triangle"); tone(784,.12,.1,"triangle"); tone(1047,.2,.2,"triangle"); }
+    else              { tone(1047,.12,0,"sine");    tone(784,.12,.1,"sine");    tone(523,.25,.2,"sine"); }
+  },
+  moving(dir){       // 이동 중 반복음: 위 = 높아지는 '띠리링', 아래 = 낮은 '뚜-우'
+    if (dir === "up") { tone(1047,.1,0,"triangle",.12); tone(1319,.1,.12,"triangle",.12); tone(1568,.12,.24,"triangle",.12); }
+    else              { tone(440,.24,0,"sine",.16); tone(349,.3,.25,"sine",.16); }
+  }
+};
+function startMoveSound(dir){
+  stopMoveSound(); snd.start(dir);
+  moveLoop = setInterval(() => snd.moving(dir), 800);
+}
+function stopMoveSound(){ if (moveLoop) { clearInterval(moveLoop); moveLoop = null; } }
+
+/* ================= 상태 바꾸기 (소리·기록 자동 처리) ================= */
+function setState(patch) {
+  const prevDir = S.dir, prevStatus = S.status, prevMsg = S.msg;
+  Object.assign(S, patch);
+  if (S.dir !== prevDir) {
+    if (S.dir === "up" || S.dir === "down") startMoveSound(S.dir);
+    else {
+      stopMoveSound();
+      if (S.status === "error") snd.error(); else if (prevDir !== "stop") snd.arrive();
+    }
+  }
+  if (S.msg && S.msg !== prevMsg && !/대기 중$/.test(S.msg) || (S.status !== prevStatus && S.status === "error")) log(S.msg);
+  render();
+}
+
+/* ================= 그리기 ================= */
+function shownFloor() { return S.dir !== "stop" ? Math.min(FLOORS, Math.max(1, Math.round(carPos))) : S.floor; }
+function render() {
+  const f = shownFloor();
+  $("digit").textContent = f;
+  $("carLbl").textContent = f + "F";
+  $("carAr").textContent = S.dir === "up" ? "▲" : S.dir === "down" ? "▼" : "";
+  $("arUp").classList.toggle("lit", S.dir === "up");
+  $("arDn").classList.toggle("lit", S.dir === "down");
+  for (let i = 1; i <= FLOORS; i++) {
+    $("lamp" + i).classList.toggle("cur", i === f);
+    $("lamp" + i).classList.toggle("tgt", S.dir !== "stop" && i === S.target && i !== f);
+    $("row" + i).classList.toggle("cur", i === f);
+    $("row" + i).classList.toggle("up", i === f && S.dir === "up");
+    $("row" + i).classList.toggle("down", i === f && S.dir === "down");
+  }
+  car.classList.toggle("open", S.door === "open");
+  $("msg").textContent = S.msg || "";
+  // 센서
+  $("sRaw").textContent = S.raw || "-";
+  $("sBot").textContent = S.calibrated ? S.bottom : "-";
+  $("sTop").textContent = S.calibrated ? S.top : "-";
+  let p = 0;
+  if (S.calibrated && S.top !== S.bottom) p = (S.raw - S.bottom) / (S.top - S.bottom);
+  else p = (carPos - 1) / (FLOORS - 1);
+  $("gDot").style.left = Math.max(0, Math.min(100, p * 100)) + "%";
+  $("calState").textContent = S.status === "calibrating" ? "📏 보정 중… (맨 아래 → 맨 위)"
+    : S.calibrated ? "✅ 보정 완료 — 최저값과 최대값 사이를 5등분해서 층을 인식해요" : "⚠ 아직 보정되지 않았어요";
+  // 연결 표시
+  const b = $("badge");
+  if (mode === "sim") { b.className = "badge sim"; b.innerHTML = '<span class="dot"></span>시뮬레이션'; }
+  else if (boardOnline()) { b.className = "badge on"; b.innerHTML = '<span class="dot"></span>보드 연결됨'; }
+  else { b.className = "badge off"; b.innerHTML = '<span class="dot"></span>보드 응답 없음'; }
+  $("btnCal").disabled = $("btnDoor").disabled = busy();
+}
+function boardOnline() { return Date.now() - boardSeenAt < 9000; }
+function busy() { return S.dir !== "stop" || ["moving","door","calibrating","arrived","booting"].includes(S.status); }
+
+/* 애니메이션: 화면 속 엘리베이터를 목표 쪽으로 부드럽게 이동 */
+let lastT = performance.now();
+function frame(t) {
+  const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  const goal = S.dir !== "stop" ? S.target : S.floor;
+  const d = goal - carPos, step = SPEED * dt;
+  carPos = Math.abs(d) <= step ? goal : carPos + Math.sign(d) * step;
+  car.style.bottom = ((carPos - 1) * FLOOR_H + 5) + "px";
+  if (mode === "sim") S.raw = simRaw();
+  updatePending();
+  render();
+  requestAnimationFrame(frame);
+}
+
+/* ================= 수동 버튼 (보드 A/B 버튼과 같은 원리) ================= */
+function press(dir) {
+  audio();
+  if (busy()) { toast("엘리베이터가 움직이는 중이에요. 멈춘 뒤 눌러 주세요"); snd.error(); return; }
+  if (mode === "fb" && !boardOnline()) toast("보드 응답이 없어요. 명령은 보드가 켜지면 실행돼요");
+  if (pend.dir !== dir) { pend.dir = dir; pend.count = 0; }
+  pend.count++; pend.t = Date.now();
+  snd.click();
+  const btn = dir > 0 ? $("btnUp") : $("btnDn");
+  btn.classList.add("flash"); setTimeout(() => btn.classList.remove("flash"), 150);
+  clearTimeout(pend.timer);
+  pend.timer = setTimeout(firePending, WAIT_MS);
+}
+function cancelPending(silent) {
+  clearTimeout(pend.timer); pend = { dir:0, count:0, t:0, timer:null };
+  if (!silent) toast("입력을 취소했어요");
+}
+function firePending() {
+  const { dir, count } = pend;
+  cancelPending(true);
+  if (!count) return;
+  if (mode === "sim") simRequest(dir, count);
+  else sendCommand(dir > 0 ? "up" : "down", count);
+}
+function updatePending() {
+  const t = $("pendText"), bar = $("pendBar");
+  if (pend.count > 0) {
+    const left = Math.max(0, WAIT_MS - (Date.now() - pend.t));
+    const target = Math.min(FLOORS, Math.max(1, S.floor + pend.dir * pend.count));
+    const arrow = pend.dir > 0 ? "▲" : "▼";
+    const limit = (pend.dir > 0 && target === FLOORS && S.floor + pend.count > FLOORS) ? " (꼭대기까지)"
+                : (pend.dir < 0 && target === 1 && S.floor - pend.count < 1) ? " (1층까지)" : "";
+    t.textContent = `${arrow} ${pend.count}번 → 목표 ${target}층${limit} · ${(left/1000).toFixed(1)}초 후 출발`;
+    bar.style.width = (100 - left / WAIT_MS * 100) + "%";
+  } else if (mode === "fb" && S.pendingCount > 0) {
+    t.textContent = `보드에서 ${S.pendingDir === "up" ? "▲ A" : "▼ B"} 버튼 ${S.pendingCount}번 입력 중…`;
+    bar.style.width = "50%";
+  } else {
+    t.textContent = "누른 횟수만큼 층을 이동해요. 마지막으로 누르고 3초 뒤 출발!";
+    bar.style.width = "0";
+  }
+}
+
+/* ================= 시뮬레이션 (보드 없이 연습) ================= */
+const SIM_BOTTOM = 3120, SIM_TOP = 640;
+function simRaw() { return Math.round(SIM_BOTTOM + (SIM_TOP - SIM_BOTTOM) * (carPos - 1) / (FLOORS - 1) + (Math.random() * 16 - 8)); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function simTravel(target, tok) {
+  if (target === S.floor && Math.abs(carPos - target) < 0.01) return true;
+  setState({ target, dir: target > carPos ? "up" : "down" });
+  while (Math.abs(carPos - target) > 0.001) { await sleep(50); if (tok !== simToken) return false; }
+  setState({ floor: target, dir: "stop" });
+  return true;
+}
+async function simDoor(tok) {
+  setState({ status:"door", door:"open", msg: S.floor + "층 문이 열렸습니다" });
+  await sleep(2000); if (tok !== simToken) return;
+  setState({ door:"closed" }); await sleep(900); if (tok !== simToken) return;
+  setState({ status:"ready", msg: S.floor + "층 대기 중" });
+}
+async function simRequest(dir, count) {
+  const tok = simToken;
+  const target = Math.min(FLOORS, Math.max(1, S.floor + dir * count));
+  if (target === S.floor) { snd.error(); setState({ msg: dir > 0 ? "이미 꼭대기(5층)입니다" : "이미 1층입니다" }); return; }
+  setState({ status:"moving", msg: `${S.floor}층 → ${target}층 이동 시작` });
+  if (!await simTravel(target, tok)) return;
+  setState({ status:"arrived", msg: target + "층입니다" });
+  await sleep(700); if (tok !== simToken) return;
+  await simDoor(tok);
+}
+async function simCalibrate() {
+  const tok = ++simToken;
+  setState({ status:"calibrating", calibrated:false, msg:"보정: 맨 아래로 내려가는 중" });
+  if (!await simTravel(1, tok)) return;
+  const bottom = simRaw();
+  setState({ status:"calibrating", msg:"보정: 맨 위로 올라가는 중" });
+  if (!await simTravel(FLOORS, tok)) return;
+  const top = simRaw();
+  setState({ status:"calibrating", bottom, top, calibrated:true, msg:`보정 완료: 아래 ${bottom} / 위 ${top}` });
+  await sleep(800); if (tok !== simToken) return;
+  if (!await simTravel(1, tok)) return;
+  setState({ status:"ready", msg:"1층 대기 중" });
+}
+function startSim() {
+  disconnect();
+  mode = "sim"; simToken++;
+  stopMoveSound();
+  Object.assign(S, { floor:3, target:3, dir:"stop", door:"closed", status:"ready", calibrated:false, pendingCount:0 });
+  carPos = 3;
+  log("시뮬레이션 시작 — 전원을 켠 것처럼 센서 보정부터 합니다");
+  simCalibrate();
+}
+
+/* ================= Firebase 실시간 연결 ================= */
+let es = null;
+const DEFAULT_DB = "https://traffice-9d12f-default-rtdb.firebaseio.com";
+const cfg = { url:DEFAULT_DB, auth:"" };
+function base() { return cfg.url.trim().replace(/\/+$/, ""); }
+function qs() { return cfg.auth ? "?auth=" + encodeURIComponent(cfg.auth) : ""; }
+function disconnect() { if (es) { es.close(); es = null; } }
+function connect() {
+  cfg.url = $("dbUrl").value.trim(); cfg.auth = $("dbAuth").value.trim();
+  if (!/^https:\/\/.+(firebaseio\.com|firebasedatabase\.app)$/.test(base())) {
+    toast("데이터베이스 주소를 확인해 주세요 (https://…firebasedatabase.app)"); return;
+  }
+  try { localStorage.setItem("elev_cfg", JSON.stringify(cfg)); } catch (e) {}
+  disconnect(); simToken++; stopMoveSound(); cancelPending(true);
+  mode = "fb"; boardSeenAt = 0;
+  Object.assign(S, { dir:"stop", status:"ready", msg:"보드 소식을 기다리는 중…" });
+  log("Firebase 연결 시도: " + base());
+  es = new EventSource(base() + "/elevator/state.json" + qs());
+  let fb = {};
+  const apply = (path, data, merge) => {
+    if (path === "/") fb = merge ? Object.assign(fb, data || {}) : (data || {});
+    else {
+      const key = path.slice(1).split("/")[0];
+      if (path.split("/").length > 2) { fb[key] = fb[key] || {}; } else fb[key] = data;
+    }
+    const tsFresh = typeof fb.ts === "number" && Math.abs(Date.now() - fb.ts) < 10000;
+    if (merge || tsFresh) boardSeenAt = Date.now();
+    const patch = {};
+    ["floor","target","raw","bottom","top","pendingCount"].forEach(k => { if (typeof fb[k] === "number") patch[k] = fb[k]; });
+    ["dir","door","status","msg","pendingDir"].forEach(k => { if (typeof fb[k] === "string") patch[k] = fb[k]; });
+    if (typeof fb.calibrated === "boolean") patch.calibrated = fb.calibrated;
+    if (patch.target === undefined && patch.floor !== undefined) patch.target = patch.floor;
+    setState(patch);
+  };
+  es.addEventListener("put",   e => { try { const m = JSON.parse(e.data); apply(m.path, m.data, false); } catch (x) {} });
+  es.addEventListener("patch", e => { try { const m = JSON.parse(e.data); apply(m.path, m.data, true); } catch (x) {} });
+  es.addEventListener("cancel", () => { toast("권한이 없어요. 데이터베이스 규칙을 확인하세요"); log("❌ 읽기 권한 거부 (규칙 확인)"); });
+  es.addEventListener("auth_revoked", () => { toast("비밀키가 만료되었어요"); });
+  es.onopen = () => log("✅ Firebase에 연결되었습니다");
+  es.onerror = () => { if (mode === "fb") log("⚠ 연결이 잠시 끊겼어요. 자동으로 다시 연결합니다"); };
+  render();
+}
+async function sendCommand(dir, count) {
+  const body = { dir, count: count || 1, id: Date.now(), from: "web" };
+  try {
+    const r = await fetch(base() + "/elevator/command.json" + qs(), {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(r.status);
+    const name = { up:"▲ 위로", down:"▼ 아래로", door:"문 열기", calibrate:"센서 보정" }[dir];
+    log(`📡 명령 보냄: ${name}${dir === "up" || dir === "down" ? " " + count + "층" : ""}`);
+    toast("보드로 명령을 보냈어요");
+  } catch (e) { toast("명령 전송 실패 (" + e.message + ")"); log("❌ 명령 전송 실패: " + e.message); }
+}
+
+/* ================= 기타 ================= */
+function log(text) {
+  if (!text) return;
+  const li = document.createElement("li");
+  const now = new Date();
+  li.innerHTML = "<time>" + now.toTimeString().slice(0, 8) + "</time>";
+  li.appendChild(document.createTextNode(text));
+  const ul = $("log"); ul.prepend(li);
+  while (ul.children.length > 50) ul.lastChild.remove();
+}
+let toastT;
+function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2400); }
+
+$("btnUp").addEventListener("click", () => press(1));
+$("btnDn").addEventListener("click", () => press(-1));
+$("btnCancel").addEventListener("click", () => cancelPending(false));
+$("btnDoor").addEventListener("click", () => {
+  audio();
+  if (mode === "sim") { const tok = simToken; simDoor(tok); } else sendCommand("door", 1);
+});
+$("btnCal").addEventListener("click", () => {
+  if (!confirm("엘리베이터를 맨 아래 → 맨 위로 움직여 센서를 다시 보정할까요?")) return;
+  audio();
+  if (mode === "sim") simCalibrate(); else sendCommand("calibrate", 1);
+});
+$("btnConnect").addEventListener("click", () => { audio(); connect(); });
+$("btnSim").addEventListener("click", () => { audio(); startSim(); });
+$("btnShare").addEventListener("click", async () => {
+  const url = $("dbUrl").value.trim();
+  if (location.protocol === "file:") { toast("파일로 열었을 때는 링크 공유가 안 돼요. 웹에 올린 뒤 사용하세요"); return; }
+  const link = location.origin + location.pathname + (url ? "?db=" + encodeURIComponent(url) : "");
+  try { await navigator.clipboard.writeText(link); toast("휴대폰용 링크를 복사했어요"); } catch (e) { prompt("이 링크를 휴대폰으로 보내세요", link); }
+});
+$("soundBtn").addEventListener("click", () => {
+  soundOn = !soundOn; audio();
+  $("soundBtn").textContent = soundOn ? "🔊 소리 켜짐" : "🔇 소리 꺼짐";
+  if (!soundOn) stopMoveSound(); else if (S.dir !== "stop") startMoveSound(S.dir);
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowUp" || e.key === "a" || e.key === "A") { e.preventDefault(); press(1); }
+  if (e.key === "ArrowDown" || e.key === "b" || e.key === "B") { e.preventDefault(); press(-1); }
+});
+
+/* 시작: 저장된 설정이나 ?db= 주소가 있으면 바로 연결, 아니면 시뮬레이션 */
+(function init() {
+  try { Object.assign(cfg, JSON.parse(localStorage.getItem("elev_cfg") || "{}")); } catch (e) {}
+  const p = new URLSearchParams(location.search);
+  if (p.get("db")) cfg.url = p.get("db");
+  $("dbUrl").value = cfg.url || ""; $("dbAuth").value = cfg.auth || "";
+  requestAnimationFrame(frame);
+  if (cfg.url) connect(); else startSim();
+})();
+})();
+</script>
+</body>
+</html>
