@@ -190,7 +190,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:5px;font-size:13px}
     <div class="row">
       <button id="btnCancel">✖ 입력 취소</button>
       <button id="btnDoor">🚪 문 열기</button>
-      <button id="btnCal">📏 센서 보정</button>
+      <button id="btnCal">⏱ 층 시간 학습</button>
     </div>
   </section>
 
@@ -199,11 +199,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:5px;font-size:13px}
     <h2>근접센서 (PIN1)</h2>
     <div class="sensorGrid">
       <div class="stat"><b id="sRaw">-</b><small>현재값</small></div>
-      <div class="stat"><b id="sBot">-</b><small>최저 (맨 아래)</small></div>
-      <div class="stat"><b id="sTop">-</b><small>최대 (맨 위)</small></div>
+      <div class="stat"><b id="sBot">-</b><small>최저 (검은 스티커)</small></div>
+      <div class="stat"><b id="sTop">-</b><small>최대 (벽)</small></div>
     </div>
     <div class="gauge"><i id="gDot" style="left:0%"></i></div>
-    <div class="ticks"><span>1층</span><span>2층</span><span>3층</span><span>4층</span><span>5층</span></div>
+    <div class="ticks"><span>■ 스티커</span><span id="sThr">기준 -</span><span>벽 □</span></div>
     <p class="help" id="calState" style="margin:10px 0 0">보정 전</p>
   </section>
 
@@ -255,6 +255,7 @@ let pend = { dir:0, count:0, t:0, timer:null };
 let soundOn = true;
 let boardSeenAt = 0;         // 보드에서 마지막으로 소식이 온 시각
 let simToken = 0;
+let livePos = null;          // 보드가 보낸 실제 위치 (0=맨 아래 ~ 1=맨 위)
 
 /* ================= 화면 만들기 ================= */
 const shaft = $("shaft"), car = $("car");
@@ -341,7 +342,9 @@ function render() {
     $("row" + i).classList.toggle("down", i === f && S.dir === "down");
   }
   car.classList.toggle("open", S.door === "open");
-  $("msg").textContent = S.msg || "";
+  $("msg").textContent = (mode === "fb" && !boardOnline())
+    ? "⚠ 보드 응답 없음 — 보드 전원·핫스팟(2.4GHz)을 확인하거나 🧪 시뮬레이션을 눌러 보세요"
+    : (S.msg || "");
   // 센서
   $("sRaw").textContent = S.raw || "-";
   $("sBot").textContent = S.calibrated ? S.bottom : "-";
@@ -349,9 +352,10 @@ function render() {
   let p = 0;
   if (S.calibrated && S.top !== S.bottom) p = (S.raw - S.bottom) / (S.top - S.bottom);
   else p = (carPos - 1) / (FLOORS - 1);
+  $("sThr").textContent = S.calibrated ? "기준 " + (S.threshold || Math.round((S.top + S.bottom) / 2)) : "기준 -";
   $("gDot").style.left = Math.max(0, Math.min(100, p * 100)) + "%";
-  $("calState").textContent = S.status === "calibrating" ? "📏 보정 중… (맨 아래 → 맨 위)"
-    : S.calibrated ? "✅ 보정 완료 — 최저값과 최대값 사이를 5등분해서 층을 인식해요" : "⚠ 아직 보정되지 않았어요";
+  $("calState").textContent = S.status === "calibrating" ? "⏱ 시간 학습 중… 올라갈 때 층마다 A 버튼, 내려올 때 층마다 B 버튼"
+    : S.calibrated ? "✅ 보정 완료 — 센서값이 기준값보다 낮으면 검은 스티커(층)로 인식하고, 스티커 수를 세서 층을 알아내요" : "⚠ 아직 보정되지 않았어요";
   // 연결 표시
   const b = $("badge");
   if (mode === "sim") { b.className = "badge sim"; b.innerHTML = '<span class="dot"></span>시뮬레이션'; }
@@ -366,7 +370,8 @@ function busy() { return S.dir !== "stop" || ["moving","door","calibrating","arr
 let lastT = performance.now();
 function frame(t) {
   const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
-  const goal = S.dir !== "stop" ? S.target : S.floor;
+  let goal = S.dir !== "stop" ? S.target : S.floor;
+  if (mode === "fb" && S.dir !== "stop" && livePos !== null) goal = Math.max(1, Math.min(FLOORS, 1 + livePos * (FLOORS - 1)));
   const d = goal - carPos, step = SPEED * dt;
   carPos = Math.abs(d) <= step ? goal : carPos + Math.sign(d) * step;
   car.style.bottom = ((carPos - 1) * FLOOR_H + 5) + "px";
@@ -420,8 +425,8 @@ function updatePending() {
 }
 
 /* ================= 시뮬레이션 (보드 없이 연습) ================= */
-const SIM_BOTTOM = 3120, SIM_TOP = 640;
-function simRaw() { return Math.round(SIM_BOTTOM + (SIM_TOP - SIM_BOTTOM) * (carPos - 1) / (FLOORS - 1) + (Math.random() * 16 - 8)); }
+
+function simRaw() { const f = carPos - Math.round(carPos); return Math.round((Math.abs(f) < 0.06 ? 60 : 880) + Math.random() * 15); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function simTravel(target, tok) {
   if (target === S.floor && Math.abs(carPos - target) < 0.01) return true;
@@ -448,13 +453,12 @@ async function simRequest(dir, count) {
 }
 async function simCalibrate() {
   const tok = ++simToken;
-  setState({ status:"calibrating", calibrated:false, msg:"보정: 맨 아래로 내려가는 중" });
+  setState({ status:"calibrating", calibrated:false, msg:"보정: 1층으로 이동" });
   if (!await simTravel(1, tok)) return;
-  const bottom = simRaw();
-  setState({ status:"calibrating", msg:"보정: 맨 위로 올라가는 중" });
+  setState({ status:"calibrating", msg:"보정: 맨 위(5층)까지 올라가며 스티커를 찾는 중" });
   if (!await simTravel(FLOORS, tok)) return;
-  const top = simRaw();
-  setState({ status:"calibrating", bottom, top, calibrated:true, msg:`보정 완료: 아래 ${bottom} / 위 ${top}` });
+  const bottom = 60, top = 895;
+  setState({ status:"calibrating", bottom, top, threshold: 477, calibrated:true, msg:`보정 완료: 스티커 ${bottom} / 벽 ${top} / 기준 477` });
   await sleep(800); if (tok !== simToken) return;
   if (!await simTravel(1, tok)) return;
   setState({ status:"ready", msg:"1층 대기 중" });
@@ -497,9 +501,10 @@ function connect() {
     const tsFresh = typeof fb.ts === "number" && Math.abs(Date.now() - fb.ts) < 10000;
     if (merge || tsFresh) boardSeenAt = Date.now();
     const patch = {};
-    ["floor","target","raw","bottom","top","pendingCount"].forEach(k => { if (typeof fb[k] === "number") patch[k] = fb[k]; });
+    ["floor","target","raw","bottom","top","threshold","pendingCount"].forEach(k => { if (typeof fb[k] === "number") patch[k] = fb[k]; });
     ["dir","door","status","msg","pendingDir"].forEach(k => { if (typeof fb[k] === "string") patch[k] = fb[k]; });
     if (typeof fb.calibrated === "boolean") patch.calibrated = fb.calibrated;
+    livePos = (typeof fb.pos === "number" && fb.pos >= -0.2 && fb.calibrated) ? fb.pos : null;
     if (patch.target === undefined && patch.floor !== undefined) patch.target = patch.floor;
     setState(patch);
   };
@@ -544,7 +549,7 @@ $("btnDoor").addEventListener("click", () => {
   if (mode === "sim") { const tok = simToken; simDoor(tok); } else sendCommand("door", 1);
 });
 $("btnCal").addEventListener("click", () => {
-  if (!confirm("엘리베이터를 맨 아래 → 맨 위로 움직여 센서를 다시 보정할까요?")) return;
+  if (!confirm("층별 시간 학습을 시작할까요?\n엘리베이터가 1층에서 올라가면 2·3·4·5층에 닿을 때마다 보드 A 버튼,\n내려올 때 4·3·2·1층에 닿을 때마다 B 버튼을 눌러 주세요.\n(보드의 A+B 버튼을 2초 눌러도 시작돼요)")) return;
   audio();
   if (mode === "sim") simCalibrate(); else sendCommand("calibrate", 1);
 });
